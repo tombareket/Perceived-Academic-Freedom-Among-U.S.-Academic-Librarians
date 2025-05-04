@@ -1,0 +1,146 @@
+---
+title: "Ordinal Logit Models of Perceived Academic Freedom Among U.S. Academic Librarians"
+author: "Tom Bareket"
+date: "2024-04-04"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+#packages and importing dataset
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(plyr)
+library(dplyr)
+library(MASS)
+library(ggplot2)
+url <- "https://conservancy.umn.edu/bitstreams/74d5ed1a-7669-41a3-9e20-f56d6c4f983b/download"
+df <- read_csv(url)
+```
+
+```{r}
+#cleaning & segmentation
+
+##X variables
+
+#column names
+df = df[-c(46,50)]
+colnames(df)[45:51] = c('Gender', 'Orientation', 'Race or Ethnicity', 'Religion', 'Disability ', 'Age', 'Citizenship ')
+
+#Gender
+#map ints to the values they represent. Map genders with <10 observations to 'other'
+
+Gender = as.list(df['Gender'])$Gender
+  table(Gender) %>% 
+          as.data.frame() %>% 
+          arrange(desc(Freq))
+Gender[which(Gender == '1')] = 'Woman'
+Gender[which(Gender == '7')] = 'Prefer not to respond'
+Gender[which(is.na(Gender))] = 'Prefer not to respond'
+Gender[which(Gender == '2')] = 'Man'
+Gender[which(!Gender %in% c('Man', 'Woman', 'Prefer not to respond'))] = 'Other'
+
+
+Orientation = as.list(df['Orientation'])$Orientation
+table(Orientation) %>% 
+        as.data.frame() %>% 
+        arrange(desc(Freq))
+Orientation[which(!Orientation %in% c('4', '2', '10', '7', '3', '5'))] = 'Other'
+Orientation[which(Orientation == '4')] = 'Heterosexual'
+Orientation[which(Orientation == '2')] = 'Bisexual'
+Orientation[which(Orientation == '10')] = 'Prefer not to respond'
+Orientation[which(Orientation == '7')] = 'Queer'
+Orientation[which(Orientation == '3')] = 'Gay'
+Orientation[which(Orientation == '5')] = 'Lesbian'
+
+#map races with <10 observations to 'other'
+Race = as.list(df['Race or Ethnicity'])$Race
+table(Race) %>% 
+        as.data.frame() %>% 
+        arrange(desc(Freq))
+Race[which(!Race %in% c('1', '3', '4', '7', '9'))] = 'Other'
+Race[which(Race == '1')] = 'African American or Black'
+Race[which(Race == '3')] = 'Asian American or Asian'
+Race[which(Race == '4')] = 'Hispanic or Latino'
+Race[which(Race == '7')] = 'White or Caucasian' 
+Race[which(Race == '9')] = 'Prefer not to respond' 
+
+#Age
+Age = as.list(df['Age'])$Age
+Age[which(Age == '1')] = '18-34'
+Age[which(Age == '2')] = '35-54'
+Age[which(Age == '3')] = '55+'
+Age[which(Age == '4')] = 'Prefer not to respond'
+
+##Y variables
+Question_workplace = as.list(df['Q10_1'])$Q10_1
+interactions_withfaculty = as.list(df['Q10_2'])$Q10_2
+interactions_withstudents = as.list(df['Q10_3'])$Q10_3
+interactions_withstaff = as.list(df['Q10_4'])$Q10_4
+participate_activities = as.list(df['Q10_5'])$Q10_5
+interactions_offcampus = as.list(df['Q10_6'])$Q10_6
+social_media = as.list(df['Q10_7'])$Q10_7
+research_publishing = as.list(df['Q10_8'])$Q10_8
+instruction = as.list(df['Q10_9'])$Q10_9
+cataloging = as.list(df['Q10_10'])$Q10_10
+collection_dev = as.list(df['Q10_11'])$Q10_11
+programming_decisions = as.list(df['Q10_12'])$Q10_12
+
+#subset df to only include relevant X and Y variables
+dfnew = data.frame(Gender, Race, Age, Orientation, Question_workplace)
+
+#set all Y = 5 (prefer not to respond) observations to 'NA'
+dfnew[dfnew == 5] <- NA
+dfnew[dfnew == 'Prefer not to respond'] <- NA
+dfnew <- na.omit(dfnew)
+```
+
+
+```{r}
+#analysis
+
+#ordinal logit p-value function
+pfromOLR = function(mod) {
+  ctable <- coef(summary(mod))
+
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+ctable <- cbind(ctable, "p value" = p)
+return(ctable)
+}
+
+ 
+
+#regression
+modlm = lm(Question_workplace ~ relevel(factor(Race), ref = "White or Caucasian") + relevel(factor(Gender), ref = "Man") + Age + Orientation, data = dfnew)
+summary(modlm)
+
+mfull = polr(formula = factor(Question_workplace) ~ relevel(factor(Race), ref = "White or Caucasian") + relevel(factor(Gender), ref = "Man") + Age + Orientation, data = dfnew, Hess = TRUE)
+
+names(mfull$coefficients) = c('RaceAfrican American or Black','RaceAsian American or Asian', 'RaceHispanic or Latino', 'RaceOther', 'GenderOther', 'GenderWoman', 'Age35-54', 'Age55+','OrientationGay', 'OrientationHeterosexual', 'OrientationLesbian', 'OrientationOther', 'OrientationQueer')
+summary(mfull)
+
+#stepwise selection
+modstep = step(mfull)
+names(modstep$coefficients) = c('RaceAfrican American or Black','RaceAsian American or Asian', 'RaceHispanic or Latino', 'RaceOther', 'GenderOther', 'GenderWoman', 'Age35-54', 'Age55+')
+pfromOLR(modstep)
+summary(modstep)
+
+#Relative Risk
+cbind(exp(-modstep$coefficients))
+
+#misc analysis for final write-up
+prop.table(table(dfnew$Gender == 'Woman'))
+```
+
+```{r}
+#visualization
+table(dfnew$Race, dfnew$Question_workplace)
+
+table(dfnew$Race, dfnew$Gender)
+
+table(dfnew$Age, dfnew$Gender)
+
+ggplot(dfnew, aes(Question_workplace)) +
+  geom_bar()
+```
